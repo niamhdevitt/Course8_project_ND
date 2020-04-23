@@ -1,0 +1,112 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+### Course 8 project
+## Niamh Devitt
+
+## Analysis of the quality of exercise taken, using data from a number of different exercise recording devices
+
+# Executive Summary 
+This report explores not what kind of activity is taken but how well it is taken. To do this I've used data on 6 participants who were asked to do a series of exercises correctly and incorrectly.
+
+
+# Data Cleaning and Exploration
+
+First we download the training and test datasets
+```{r getdata}
+library(caret)
+library(rpart)
+url_train <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+url_test <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(url_train, destfile = "train_data.csv")
+download.file(url_test, destfile = "test_data.csv")
+
+train_data <- read.csv("~/DataScience/Course8_PracticalMachineLearning/train_data.csv")
+test_data <- read.csv("~/DataScience/Course8_PracticalMachineLearning/test_data.csv")
+```
+
+Data cleaning; we remove a number of variables with near zero variance that will have little impact in our prediction. First 7 columns are not predictors and we'll remove columns that are mostly blank.
+
+```{r cleaning}
+train_clean <- train_data[,-c(1:7)]
+remove_blanks <- which(colSums(is.na(train_clean) |train_clean=="")>0.9*dim(train_clean)[1]) 
+train_clean <- train_clean[,-remove_blanks]
+
+test_clean <- test_data[,-c(1,7)]
+remove_blanks2 <- which(colSums(is.na(test_clean) |test_clean=="")>0.9*dim(test_clean)[1]) 
+test_clean <- test_clean[,-remove_blanks2]
+```
+
+First we will split the training data into a training dataset and a validation set where we will test our final model before applying to the test set and submitting.
+
+```{r data_exp}
+set.seed(383)
+inTrain <- createDataPartition(train_clean$classe, p=0.7, list= FALSE)
+training <- train_clean[inTrain,]
+validation <- train_clean[-inTrain,]
+
+dim(training)
+dim(validation)
+levels(training$classe)
+```
+
+
+In order to avoid overfitting and to assess the effectiveness of our models we will use cross-validation. 
+
+# Model 1: Classification Tree
+```{r CtModel}
+set.seed(111)
+mod_cv <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modfit_ct<- train(classe~., data=training, method="rpart", trControl=mod_cv)
+pred_ct <- predict(modfit_ct, newdata=validation)
+confusionMatrix(pred_ct, validation$classe)$overall['Accuracy']
+
+```
+The accuracy of our classification tree is low at 49.5%. We'll fit a random forest model to improve accuracy.
+
+# Model 2: Random Forest
+```{r rfmodel}
+set.seed(456)
+mod_cv <- trainControl(method="cv", number=3, verboseIter=FALSE)
+modfit_rf <- train(classe ~., data = training, method = "rf", trControl = mod_cv)
+modfit_rf$finalModel
+
+pred_rf <- predict(modfit_rf, newdata=validation)
+confusionMatrix(pred_rf, validation$classe)$overall['Accuracy']
+```
+
+Random forest model prediction; our random forest model has 99.3% accuracy with cross validation 3 times in predicting the validation set.
+
+This is a very strong model.  but we will try a gradient boosting model also to see what kind of accuracy we find.
+
+# Model 3: Gradient Boosting
+The gradient boosting model has 96% accuracy with cross validation. 
+
+```{r gbmModel}
+set.seed(444)
+modfit_gbm <- train(classe ~., data = training, method = "gbm", verbose=FALSE, trControl = mod_cv)
+modfit_gbm$finalModel
+
+pred_gbm <- predict(modfit_gbm, newdata=validation)
+confusionMatrix(pred_gbm, validation$classe)$overall['Accuracy']
+```
+
+# Model 3: Combined
+```{r combined}
+combined <- data.frame(pred_ct, pred_rf, pred_gbm, classe=validation$classe)
+combined_rf <- train(classe~., data = combined, method = "rf")
+pred_combinedrf <- predict(combined_rf, newdata = validation)
+confusionMatrix(pred_combinedrf, validation$classe)$overall['Accuracy']
+```
+We can try to stack our predictions to improve accuracy, however we can see that accuracy has not improved from the random foret model so we will use this model as it will have less bias and easier to interpret.
+
+Our final model, the random forest model has 99.2% accuracy, expected out of sample error will be less than 1%.
+
+# Using our Final Model to predict on the Clean Test set
+```{r finaltest}
+FinalTest_pred <- predict(modfit_rf,newdata=test_clean)
+FinalTest_pred
+```
+The results wll be tested in Course Project Quiz.
